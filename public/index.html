@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support Client - Chat</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; position: relative; }
+        #chat-container { width: 100%; max-width: 400px; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 550px; }
+        .chat-header { background: #0084ff; color: white; padding: 15px; text-align: center; font-weight: bold; }
+        #messages { flex: 1; padding: 15px; overflow-y: auto; list-style-type: none; display: flex; flex-direction: column; gap: 8px; }
+        #messages li { padding: 10px 14px; border-radius: 8px; background: #e4e6eb; max-width: 85%; word-break: break-word; }
+        #messages li.admin { background: #0084ff; color: white; align-self: flex-start; }
+        #messages li.self { background: #0084ff; color: white; align-self: flex-end; }
+        
+        #messages img, #messages video { max-width: 180px; border-radius: 6px; display: block; margin-top: 5px; cursor: pointer; }
+        #messages audio { display: block; margin-top: 5px; max-width: 220px; }
+        
+        #media-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 2000; cursor: pointer; }
+        #media-modal img, #media-modal video { max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.5); cursor: default; }
+        #close-modal { position: absolute; top: 20px; right: 30px; color: white; font-size: 2rem; font-weight: bold; cursor: pointer; }
+
+        #chat-form { display: flex; border-top: 1px solid #dee2e6; padding: 10px; background: #fff; gap: 8px; align-items: center; }
+        #msg-input { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+        .action-btn { background: #e4e6eb; color: #333; padding: 10px 12px; border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: bold; border: none; }
+        .action-btn.recording { background: #ff3b30; color: white; animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        button[type="submit"] { padding: 10px 16px; background: #0084ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="media-modal">
+        <span id="close-modal">&times;</span>
+        <div id="modal-content-container"></div>
+    </div>
+
+    <div id="chat-container">
+        <div class="chat-header">💬 Discussion avec le Support</div>
+        <ul id="messages"></ul>
+        <form id="chat-form">
+            <label class="action-btn" for="file-input">📁</label>
+            <input type="file" id="file-input" style="display: none;" accept="image/*,video/*" />
+            <button type="button" id="record-btn" class="action-btn" title="Enregistrer un message vocal">🎤</button>
+            <input type="text" id="msg-input" placeholder="Écrivez votre message..." autocomplete="off" />
+            <button type="submit">Envoyer</button>
+        </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        const form = document.getElementById('chat-form');
+        const inputMsg = document.getElementById('msg-input');
+        const fileInput = document.getElementById('file-input');
+        const recordBtn = document.getElementById('record-btn');
+        const messagesUl = document.getElementById('messages');
+        const modal = document.getElementById('media-modal');
+        const modalContent = document.getElementById('modal-content-container');
+        const closeModal = document.getElementById('close-modal');
+
+        recordBtn.onclick = async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.readAsDataURL(audioBlob);
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result;
+                            socket.emit('clientMessage', { text: '', file: base64Audio, fileType: 'audio/webm' });
+                            appendSelfMessage('', base64Audio, 'audio/webm');
+                        };
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    recordBtn.classList.add('recording');
+                    recordBtn.textContent = '⏹️';
+                } catch (err) {
+                    alert("Impossible d'accéder au microphone.");
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                recordBtn.classList.remove('recording');
+                recordBtn.textContent = '🎤';
+            }
+        };
+
+        function openMediaModal(src, type) {
+            modalContent.innerHTML = '';
+            if (type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.src = src;
+                modalContent.appendChild(img);
+            } else if (type.startsWith('video/')) {
+                const video = document.createElement('video');
+                video.src = src;
+                video.controls = true;
+                video.autoplay = true;
+                modalContent.appendChild(video);
+            }
+            modal.style.display = 'flex';
+        }
+
+        closeModal.onclick = () => { modal.style.display = 'none'; };
+        modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = inputMsg.value.trim();
+            const file = fileInput.files[0];
+
+            if (text || file) {
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        socket.emit('clientMessage', { text: text, file: event.target.result, fileType: file.type });
+                        appendSelfMessage(text, event.target.result, file.type);
+                        resetForm();
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    socket.emit('clientMessage', { text: text, file: null, fileType: null });
+                    appendSelfMessage(text, null, null);
+                    resetForm();
+                }
+            }
+        });
+
+        function resetForm() {
+            inputMsg.value = '';
+            fileInput.value = '';
+        }
+
+        function appendSelfMessage(text, file, fileType) {
+            const li = document.createElement('li');
+            li.className = 'self';
+            if(text) li.textContent = text;
+
+            if (file) {
+                if (fileType.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = file;
+                    img.onclick = () => openMediaModal(file, fileType);
+                    li.appendChild(img);
+                } else if (fileType.startsWith('video/')) {
+                    const video = document.createElement('video');
+                    video.src = file;
+                    video.controls = true;
+                    video.onclick = () => openMediaModal(file, fileType);
+                    li.appendChild(video);
+                } else if (fileType.startsWith('audio/')) {
+                    const audio = document.createElement('audio');
+                    audio.src = file;
+                    audio.controls = true;
+                    li.appendChild(audio);
+                }
+            }
+            messagesUl.appendChild(li);
+            messagesUl.scrollTop = messagesUl.scrollHeight;
+        }
+
+        socket.on('privateMessage', (data) => {
+            const li = document.createElement('li');
+            li.className = 'admin';
+            li.innerHTML = data.text ? `<strong>${data.author} :</strong> ${data.text}` : `<strong>${data.author} :</strong>`;
+
+            if (data.file) {
+                if (data.fileType.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = data.file;
+                    img.onclick = () => openMediaModal(data.file, data.fileType);
+                    li.appendChild(img);
+                } else if (data.fileType.startsWith('video/')) {
+                    const video = document.createElement('video');
+                    video.src = data.file;
+                    video.controls = true;
+                    video.onclick = () => openMediaModal(data.file, data.fileType);
+                    li.appendChild(video);
+                } else if (data.fileType.startsWith('audio/')) {
+                    const audio = document.createElement('audio');
+                    audio.src = data.file;
+                    audio.controls = true;
+                    li.appendChild(audio);
+                }
+            }
+            messagesUl.appendChild(li);
+            messagesUl.scrollTop = messagesUl.scrollHeight;
+        });
+    </script>
+</body>
+</html>
