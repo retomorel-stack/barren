@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messenger Admin - Support</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; height: 100vh; display: flex; position: relative; overflow: hidden; }
+        
+        #sidebar { width: 380px; background: white; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 20px; font-size: 1.2rem; font-weight: bold; background: #0084ff; color: white; }
+        #user-list { list-style: none; overflow-y: auto; flex: 1; }
+        #user-list li { padding: 15px 20px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        #user-list li:hover { background: #f7f8fa; }
+        #user-list li.active { background: #e6f2ff; }
+        
+        .user-info { display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1; }
+        .avatar { width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; background: linear-gradient(135deg, #00c6ff, #0072ff); flex-shrink: 0; }
+        
+        .user-details { overflow: hidden; flex: 1; }
+        .user-details strong { display: block; font-size: 0.95rem; color: #050505; }
+        .last-msg { font-size: 0.8rem; color: #65676b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+        
+        .unread-badge { background: #25d366; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; flex-shrink: 0; }
+        .delete-btn { background: #ff3b30; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: bold; display: none; }
+        #user-list li:hover .delete-btn { display: block; }
+
+        #chat-area { flex: 1; display: flex; flex-direction: column; background: #fff; }
+        .chat-header { padding: 20px; font-size: 1.1rem; font-weight: bold; border-bottom: 1px solid #ddd; background: #fafafa; }
+        #messages { flex: 1; padding: 20px; overflow-y: auto; list-style: none; display: flex; flex-direction: column; gap: 10px; background: #fdfdfd; }
+        #messages li { padding: 10px 14px; border-radius: 8px; max-width: 70%; word-break: break-word; background: #e4e6eb; }
+        #messages li.admin-msg { background: #0084ff; color: white; align-self: flex-end; }
+        
+        #messages img, #messages video { max-width: 220px; border-radius: 6px; display: block; margin-top: 6px; cursor: pointer; }
+        #messages audio { display: block; margin-top: 6px; max-width: 240px; }
+
+        #chat-form { display: flex; padding: 15px; border-top: 1px solid #ddd; background: #fff; gap: 10px; align-items: center; }
+        #msg-input { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+        .action-btn { background: #e4e6eb; color: #333; padding: 10px 14px; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 0.9rem; border: none; }
+        .action-btn.recording { background: #ff3b30; color: white; animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        button[type="submit"] { padding: 10px 20px; background: #0084ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        
+        #media-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 2000; cursor: pointer; }
+        #media-modal img, #media-modal video { max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.5); cursor: default; }
+        #close-modal { position: absolute; top: 20px; right: 30px; color: white; font-size: 2rem; font-weight: bold; cursor: pointer; }
+
+        #notification-container { position: fixed; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; pointer-events: none; }
+        .toast { background: #242526; color: white; padding: 15px 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); pointer-events: auto; display: flex; flex-direction: column; gap: 4px; min-width: 260px; animation: slideIn 0.3s ease-out; border-left: 5px solid #25d366; }
+        .toast strong { color: #25d366; font-size: 0.95rem; }
+        .toast span { font-size: 0.85rem; color: #b0b3b8; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(50px); } to { opacity: 1; transform: translateX(0); } }
+
+        .no-chat { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-size: 1.1rem; }
+    </style>
+</head>
+<body>
+
+    <div id="media-modal">
+        <span id="close-modal">&times;</span>
+        <div id="modal-content-container"></div>
+    </div>
+
+    <div id="notification-container"></div>
+
+    <div id="sidebar">
+        <div class="sidebar-header">Conversations Clients</div>
+        <ul id="user-list">
+            <li class="no-chat">Aucun client connecté</li>
+        </ul>
+    </div>
+
+    <div id="chat-area">
+        <div class="chat-header" id="current-chat-title">Sélectionnez une conversation à gauche</div>
+        <ul id="messages"></ul>
+        <form id="chat-form" style="display: none;">
+            <label class="action-btn" for="file-input" title="Envoyer un fichier">📁</label>
+            <input type="file" id="file-input" style="display: none;" accept="image/*,video/*" />
+            <button type="button" id="record-btn" class="action-btn" title="Maintenir ou cliquer pour enregistrer un vocal">🎤</button>
+            <input type="text" id="msg-input" placeholder="Répondre au client..." autocomplete="off" />
+            <button type="submit">Envoyer</button>
+        </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let activeUserId = null;
+        let conversations = {};
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        const userListUl = document.getElementById('user-list');
+        const messagesUl = document.getElementById('messages');
+        const chatForm = document.getElementById('chat-form');
+        const inputMsg = document.getElementById('msg-input');
+        const fileInput = document.getElementById('file-input');
+        const recordBtn = document.getElementById('record-btn');
+        const chatTitle = document.getElementById('current-chat-title');
+        const notifContainer = document.getElementById('notification-container');
+        const modal = document.getElementById('media-modal');
+        const modalContent = document.getElementById('modal-content-container');
+        const closeModal = document.getElementById('close-modal');
+
+        // Gestion de l'enregistrement vocal
+        recordBtn.onclick = async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.readAsDataURL(audioBlob);
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result;
+                            if (activeUserId) {
+                                socket.emit('adminReply', {
+                                    targetSocketId: activeUserId,
+                                    text: '',
+                                    file: base64Audio,
+                                    fileType: 'audio/webm'
+                                });
+                            }
+                        };
+                        // Couper le flux du micro
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    recordBtn.classList.add('recording');
+                    recordBtn.textContent = '⏹️';
+                } catch (err) {
+                    alert("Impossible d'accéder au microphone.");
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                recordBtn.classList.remove('recording');
+                recordBtn.textContent = '🎤';
+            }
+        };
+
+        function openMediaModal(src, type) {
+            modalContent.innerHTML = '';
+            if (type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.src = src;
+                modalContent.appendChild(img);
+            } else if (type.startsWith('video/')) {
+                const video = document.createElement('video');
+                video.src = src;
+                video.controls = true;
+                video.autoplay = true;
+                modalContent.appendChild(video);
+            }
+            modal.style.display = 'flex';
+        }
+
+        closeModal.onclick = () => { modal.style.display = 'none'; };
+        modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+        function showToast(title, text) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `<strong>${title}</strong><span>${text}</span>`;
+            notifContainer.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        socket.on('newUserNotification', (data) => {
+            showToast("Nouveau client", `${data.pseudo} vient de se connecter.`);
+        });
+
+        socket.on('updateUserList', (users) => {
+            userListUl.innerHTML = '';
+            if (users.length === 0) {
+                userListUl.innerHTML = '<li style="padding:20px; color:#888; justify-content:center;">Aucun client en ligne</li>';
+                return;
+            }
+
+            users.forEach(user => {
+                if (!conversations[user.id]) conversations[user.id] = [];
+                const li = document.createElement('li');
+                if (user.id === activeUserId) li.classList.add('active');
+                
+                li.innerHTML = `
+                    <div class="user-info">
+                        <div class="avatar">${user.pseudo.charAt(0).toUpperCase()}</div>
+                        <div class="user-details">
+                            <strong>${user.pseudo}</strong>
+                            <div class="last-msg">${user.lastMessage || 'Aucun message'}</div>
+                        </div>
+                    </div>
+                    ${user.unreadCount > 0 ? `<div class="unread-badge">${user.unreadCount}</div>` : ''}
+                    <button class="delete-btn" title="Supprimer la conversation">Supprimer</button>
+                `;
+
+                li.querySelector('.user-info').onclick = () => selectUser(user.id, user.pseudo);
+                
+                li.querySelector('.delete-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Voulez-vous vraiment supprimer la conversation avec ${user.pseudo} ?`)) {
+                        socket.emit('deleteConversation', user.id);
+                        delete conversations[user.id];
+                        if (activeUserId === user.id) {
+                            activeUserId = null;
+                            chatTitle.textContent = "Sélectionnez une conversation à gauche";
+                            messagesUl.innerHTML = '';
+                            chatForm.style.display = 'none';
+                        }
+                    }
+                };
+
+                userListUl.appendChild(li);
+            });
+        });
+
+        function selectUser(userId, pseudo) {
+            activeUserId = userId;
+            chatTitle.textContent = `Discussion avec ${pseudo}`;
+            chatForm.style.display = 'flex';
+            socket.emit('markAsRead', userId);
+            renderMessages();
+        }
+
+        socket.on('newClientMessage', (data) => {
+            if (!conversations[data.senderId]) conversations[data.senderId] = [];
+            conversations[data.senderId].push({ author: data.author, text: data.text, file: data.file, fileType: data.fileType, type: 'client' });
+            
+            if (activeUserId === data.senderId) {
+                renderMessages();
+            } else {
+                showToast(`Message de ${data.author}`, data.fileType && data.fileType.startsWith('audio/') ? '[Message vocal]' : (data.text || '[Média]'));
+            }
+        });
+
+        socket.on('adminReplySent', (data) => {
+            if (!conversations[data.targetSocketId]) conversations[data.targetSocketId] = [];
+            conversations[data.targetSocketId].push({ author: data.author, text: data.text, file: data.file, fileType: data.fileType, type: 'admin' });
+            if (activeUserId === data.targetSocketId) renderMessages();
+        });
+
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = inputMsg.value.trim();
+            const file = fileInput.files[0];
+
+            if ((text || file) && activeUserId) {
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        socket.emit('adminReply', { targetSocketId: activeUserId, text, file: event.target.result, fileType: file.type });
+                        resetForm();
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    socket.emit('adminReply', { targetSocketId: activeUserId, text, file: null, fileType: null });
+                    resetForm();
+                }
+            }
+        });
+
+        function resetForm() {
+            inputMsg.value = '';
+            fileInput.value = '';
+        }
+
+        function renderMessages() {
+            messagesUl.innerHTML = '';
+            const msgs = conversations[activeUserId] || [];
+            msgs.forEach(m => {
+                const li = document.createElement('li');
+                if (m.type === 'admin') li.classList.add('admin-msg');
+                let content = m.text ? `<strong>${m.author} :</strong> ${m.text}` : `<strong>${m.author} :</strong>`;
+                li.innerHTML = content;
+
+                if (m.file) {
+                    if (m.fileType.startsWith('image/')) {
+                        const img = document.createElement('img');
+                        img.src = m.file;
+                        img.onclick = () => openMediaModal(m.file, m.fileType);
+                        li.appendChild(img);
+                    } else if (m.fileType.startsWith('video/')) {
+                        const video = document.createElement('video');
+                        video.src = m.file;
+                        video.controls = true;
+                        video.onclick = () => openMediaModal(m.file, m.fileType);
+                        li.appendChild(video);
+                    } else if (m.fileType.startsWith('audio/')) {
+                        const audio = document.createElement('audio');
+                        audio.src = m.file;
+                        audio.controls = true;
+                        li.appendChild(audio);
+                    }
+                }
+                messagesUl.appendChild(li);
+            });
+            messagesUl.scrollTop = messagesUl.scrollHeight;
+        }
+    </script>
+</body>
+</html>
